@@ -1,0 +1,5 @@
+sacctmgr show qos format=Name%-50,MaxJobsPerUser,MaxTRES%-50,MaxWall
+scontrol show partition
+watch -n 1 'squeue --format="%.18i %.50j %.8u %.2t %.10M %.6D %R" | grep helm'
+squeue -u $USER | grep scivias | awk '{print $1}' | xargs scancel
+squeue -u $USER | grep -v "jupyter" | awk 'NR>1 {print $1}' | xargs scancel
