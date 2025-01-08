@@ -19,7 +19,7 @@ from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, average_pre
 from pycm import *
 import matplotlib.pyplot as plt
 import numpy as np
-
+from my_vis import plot_confusion_matrix_with_counts
 
 
 
@@ -79,6 +79,7 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
+    num_classes = len(data_loader.dataset.classes)
     for data_iter_step, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
 
         # we use a per iteration (instead of per epoch) lr scheduler
@@ -93,6 +94,14 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
 
         with torch.cuda.amp.autocast():
             outputs = model(samples)
+            if isinstance(criterion, nn.BCEWithLogitsLoss) or isinstance(criterion, nn.BCELoss):
+                
+                targets = torch.nn.functional.one_hot(targets, num_classes=num_classes).float()
+                if args.use_sigmoid == 1:
+                    print('using sigmoid')
+                    m = nn.Sigmoid()
+                    outputs = m(outputs)
+            
             loss = criterion(outputs, targets)
 
         loss_value = loss.item()
@@ -185,9 +194,11 @@ def evaluate(data_loader, model, device, task, epoch, mode, num_class):
     confusion_matrix = multilabel_confusion_matrix(true_label_decode_list, prediction_decode_list,labels=[i for i in range(num_class)])
     acc, sensitivity, specificity, precision, G, F1, mcc = misc_measures(confusion_matrix)
     
+    my_acc = accuracy_score(true_label_decode_list, prediction_decode_list)
+    
     auc_roc = roc_auc_score(true_label_onehot_list, prediction_list,multi_class='ovr',average='macro')
     auc_pr = average_precision_score(true_label_onehot_list, prediction_list,average='macro')          
-            
+    metric_logger.meters['acc'].update(my_acc, n=1)
     metric_logger.synchronize_between_processes()
     
     print('Sklearn Metrics - Acc: {:.4f} AUC-roc: {:.4f} AUC-pr: {:.4f} F1-score: {:.4f} MCC: {:.4f}'.format(acc, auc_roc, auc_pr, F1, mcc)) 
@@ -197,12 +208,13 @@ def evaluate(data_loader, model, device, task, epoch, mode, num_class):
         data2=[[acc,sensitivity,specificity,precision,auc_roc,auc_pr,F1,mcc,metric_logger.loss]]
         for i in data2:
             wf.writerow(i)
-            
-    
-    if mode=='test':
-        cm = ConfusionMatrix(actual_vector=true_label_decode_list, predict_vector=prediction_decode_list)
-        cm.plot(cmap=plt.cm.Blues,number_label=True,normalized=True,plot_lib="matplotlib")
-        plt.savefig(task+'confusion_matrix_test.jpg',dpi=600,bbox_inches ='tight')
+
+    # if mode=='test':
+    # cm = ConfusionMatrix(actual_vector=true_label_decode_list, predict_vector=prediction_decode_list)
+    # cm.plot(cmap=plt.cm.Blues,number_label=True,normalized=True,plot_lib="matplotlib")
+    # plt.savefig(task+f'confusion_matrix_{mode}.jpg',dpi=600,bbox_inches ='tight')
+    # Plot confusion matrix with string labels
+    plot_confusion_matrix_with_counts(data_loader, true_label_decode_list, prediction_decode_list, task, mode)
     
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()},auc_roc
 

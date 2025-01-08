@@ -24,13 +24,23 @@ from timm.loss import LabelSmoothingCrossEntropy, SoftTargetCrossEntropy
 
 import util.lr_decay as lrd
 import util.misc as misc
-from util.datasets import build_dataset
+from util.datasets import build_dataset, calculate_mean_std
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+
 from util.pos_embed import interpolate_pos_embed
 from util.misc import NativeScalerWithGradNormCount as NativeScaler
 
 import models_vit
 
 from engine_finetune import train_one_epoch, evaluate
+
+from my_vis import plot_loss_history
+from balance_data import get_balanced_sampler
+
+import torch
+print("CUDA available:", torch.cuda.is_available())
+print("cuDNN enabled:", torch.backends.cudnn.enabled)
+print("Device name:", torch.cuda.get_device_name(0))
 
 
 def get_args_parser():
@@ -147,7 +157,21 @@ def get_args_parser():
     parser.add_argument('--dist_on_itp', action='store_true')
     parser.add_argument('--dist_url', default='env://',
                         help='url used to set up distributed training')
-
+    parser.add_argument('--balance', default=0, type=int,
+                        help='use balance sampler or not')
+    parser.add_argument('--loss', default='cross_entropy',
+                        help='train loss function')
+    
+    parser.add_argument('--use_sigmoid', default=0, type=int,
+                        help='use sigmoid')
+    parser.add_argument('--stats_source', default='imagenet',
+                        help='mean and std source for data normalization')
+    parser.add_argument('--more_augmentation', default=1, type=int,
+                        help='use extra augmentaion when balancing data')
+    
+    parser.add_argument('--transform', default='retfound',
+                        help='weather to use retfound transform or my own custom transform (set to custom)')
+    
     return parser
 
 
@@ -166,6 +190,10 @@ def main(args):
 
     cudnn.benchmark = True
 
+    if args.stats_source == "custom":
+        args.mean, args.std = calculate_mean_std(args.data_path + '/train/')
+    else:
+        args.mean, args.std = IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
     dataset_train = build_dataset(is_train='train', args=args)
     dataset_val = build_dataset(is_train='val', args=args)
     dataset_test = build_dataset(is_train='test', args=args)
@@ -173,9 +201,16 @@ def main(args):
     if True:  # args.distributed:
         num_tasks = misc.get_world_size()
         global_rank = misc.get_rank()
-        sampler_train = torch.utils.data.DistributedSampler(
-            dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
-        )
+        print(f'this is global rank old: {global_rank}')
+        global_rank = int(os.environ["SLURM_PROCID"])
+        print(f'this is global rank new: {global_rank}')
+        
+        if args.balance == 1:
+            sampler_train = get_balanced_sampler(dataset_train, args.more_augmentation)
+        else:
+            sampler_train = torch.utils.data.DistributedSampler(
+                dataset_train, num_replicas=num_tasks, rank=global_rank, shuffle=True
+            )
         print("Sampler_train = %s" % str(sampler_train))
         if args.dist_eval:
             if len(dataset_val) % num_tasks != 0:
@@ -207,7 +242,7 @@ def main(args):
     data_loader_train = torch.utils.data.DataLoader(
         dataset_train, sampler=sampler_train,
         batch_size=args.batch_size,
-        num_workers=args.num_workers,
+        num_workers=1,
         pin_memory=args.pin_mem,
         drop_last=True,
     )
@@ -215,7 +250,7 @@ def main(args):
     data_loader_val = torch.utils.data.DataLoader(
         dataset_val, sampler=sampler_val,
         batch_size=args.batch_size,
-        num_workers=args.num_workers,
+        num_workers=1,
         pin_memory=args.pin_mem,
         drop_last=False
     )
@@ -223,7 +258,7 @@ def main(args):
     data_loader_test = torch.utils.data.DataLoader(
         dataset_test, sampler=sampler_test,
         batch_size=args.batch_size,
-        num_workers=args.num_workers,
+        num_workers=1,
         pin_memory=args.pin_mem,
         drop_last=False
     )
@@ -302,7 +337,11 @@ def main(args):
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr)
     loss_scaler = NativeScaler()
 
-    if mixup_fn is not None:
+    if args.loss == 'bce_logit':
+        criterion = torch.nn.BCEWithLogitsLoss()
+    elif args.loss == 'bce':
+        criterion = torch.nn.BCELoss()
+    elif mixup_fn is not None:
         # smoothing is handled with mixup label transform
         criterion = SoftTargetCrossEntropy()
     elif args.smoothing > 0.:
@@ -322,8 +361,12 @@ def main(args):
     start_time = time.time()
     max_accuracy = 0.0
     max_auc = 0.0
+    loss_history = {'train': [], 'val': []}
+    auc_hist = {'train': [], 'val': []}
+    acc_hist = {'train': [], 'val': []}
+    
     for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
+        if args.distributed and args.balance == 0:
             data_loader_train.sampler.set_epoch(epoch)
         train_stats = train_one_epoch(
             model, criterion, data_loader_train,
@@ -332,8 +375,20 @@ def main(args):
             log_writer=log_writer,
             args=args
         )
-
+        loss_history['train'].append(train_stats['loss'])
+        train_stats,train_auc_roc = evaluate(data_loader_train, model, device,args.task,epoch, mode='train',num_class=args.nb_classes)
+        auc_hist['train'].append(train_auc_roc)
+        acc_hist['train'].append(train_stats['acc'])
+        
         val_stats,val_auc_roc = evaluate(data_loader_val, model, device,args.task,epoch, mode='val',num_class=args.nb_classes)
+        loss_history['val'].append(val_stats['loss'])
+        auc_hist['val'].append(val_auc_roc)
+        acc_hist['val'].append(val_stats['acc'])
+        
+        plot_loss_history(loss_history, args.task, 'loss')
+        plot_loss_history(acc_hist, args.task, 'acc')
+        plot_loss_history(auc_hist, args.task, 'auc_roc')
+        
         if max_auc<val_auc_roc:
             max_auc = val_auc_roc
             
