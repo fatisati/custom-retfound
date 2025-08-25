@@ -13,12 +13,13 @@ from torchvision import transforms
 from torchvision.transforms import InterpolationMode, RandomErasing
 import random
 
+
 def build_dataset(is_train, args):
 
     root = os.path.join(args.data_path, is_train)
     mean, std = args.mean, args.std
-    
-    if args.transform == 'custom':
+
+    if args.transform == "custom":
         transform = get_custom_transform(args, is_train)
     else:
         transform = build_transform(is_train, args, mean, std)
@@ -39,13 +40,13 @@ def calculate_mean_std(data_path, batch_size=16):
         tuple: Mean and standard deviation as lists for each channel.
     """
     # Define a transform to convert images to tensors without normalization
-    transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor()])
+    transform = transforms.Compose(
+        [transforms.Resize((224, 224)), transforms.ToTensor()]
+    )
 
     # Load the dataset
     dataset = datasets.ImageFolder(root=data_path, transform=transform)
-    loader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=False
-    )
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
     mean = 0.0
     std = 0.0
@@ -100,7 +101,6 @@ def build_transform(is_train, args, mean, std):
     return transforms.Compose(t)
 
 
-
 def get_custom_transform(args, is_train="train"):
     """
     Creates a suitable transformation pipeline for fine-tuning a transformer on OCT retina images.
@@ -114,46 +114,59 @@ def get_custom_transform(args, is_train="train"):
     """
     # Shared transformations
     normalize = transforms.Normalize(mean=args.mean, std=args.std)
-    resize = transforms.Resize((args.input_size, args.input_size), interpolation=InterpolationMode.BICUBIC)
-    
+    resize = transforms.Resize(
+        (args.input_size, args.input_size), interpolation=InterpolationMode.BICUBIC
+    )
+
     if is_train == "train":
         # Training Transformations
-        transform = transforms.Compose([
-            resize,
-            transforms.ColorJitter(
-                brightness=args.color_jitter if args.color_jitter else 0.1,
-                contrast=args.color_jitter if args.color_jitter else 0.1,
-                saturation=args.color_jitter if args.color_jitter else 0.1,
-                hue=0.05
-            ),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomRotation(degrees=15),
-            transforms.RandomApply([transforms.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0))], p=0.3),
-            transforms.ToTensor(),
-            normalize,
-            RandomErasing(
-                p=args.reprob if hasattr(args, 'reprob') else 0.25,
-                scale=(0.02, 0.33),
-                ratio=(0.3, 3.3),
-                value='mean' if args.remode == 'mean' else 0,
-                inplace=True
-            )
-        ])
+        transform = transforms.Compose(
+            [
+                resize,
+                transforms.ColorJitter(
+                    brightness=args.color_jitter if args.color_jitter else 0.1,
+                    contrast=args.color_jitter if args.color_jitter else 0.1,
+                    saturation=args.color_jitter if args.color_jitter else 0.1,
+                    hue=0.05,
+                ),
+                transforms.RandomHorizontalFlip(p=0.5),
+                transforms.RandomRotation(degrees=15),
+                transforms.RandomApply(
+                    [transforms.GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 2.0))],
+                    p=0.3,
+                ),
+                transforms.ToTensor(),
+                normalize,
+                RandomErasing(
+                    p=args.reprob if hasattr(args, "reprob") else 0.25,
+                    scale=(0.02, 0.33),
+                    ratio=(0.3, 3.3),
+                    value="mean" if args.remode == "mean" else 0,
+                    inplace=True,
+                ),
+            ]
+        )
     elif is_train == "val":
         # Validation Transformations
-        transform = transforms.Compose([
-            resize,
-            transforms.ToTensor(),
-            normalize,
-        ])
+        transform = transforms.Compose(
+            [
+                resize,
+                transforms.ToTensor(),
+                normalize,
+            ]
+        )
     elif is_train == "test":
         # Test Transformations
-        transform = transforms.Compose([
-            resize,
-            transforms.ToTensor(),
-            normalize,
-        ])
+        transform = transforms.Compose(
+            [
+                resize,
+                transforms.ToTensor(),
+                normalize,
+            ]
+        )
     else:
-        raise ValueError(f"Unknown split type: {is_train}. Must be 'train', 'val', or 'test'.")
-    
+        raise ValueError(
+            f"Unknown split type: {is_train}. Must be 'train', 'val', or 'test'."
+        )
+
     return transform

@@ -1,0 +1,6 @@
+1. add to defaults
+2. add abbrevation to constants
+3. add to the sbatch template
+4. add to the parser (finetune_main)
+5. add to the code
+6. test using experiment eval

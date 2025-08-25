@@ -1,4 +1,4 @@
-print('hello before imports')
+print("hello before imports")
 import os
 import subprocess
 import itertools
@@ -17,7 +17,7 @@ class ExperimentRunner:
     def __init__(
         self,
         max_jobs=3,
-        user="e-helmholtz",
+        user="fatemehs.hashemig",
         template_file="auto_sbatch/templates/generated_template.sbatch",
         output_dir="./out_files/",
         sbatch_dir="./sbatch_files/",
@@ -30,12 +30,40 @@ class ExperimentRunner:
         self.defaults = defaults_dict.copy()
         self.original_defaults = self.defaults.copy()
         self.qos_dict = {
-            "jobs-gpu": {"count": max_jobs, "memory": "150G"},
-            # "jobs-gpu-long": {"count": 3, "memory": "32"},
+            # "gpu_long": {
+            #     "max_jobs_per_user": 8,
+            #     "cpu": 28,
+            #     "memory": "500G",
+            #     "partition": "gpu_p",
+            # },
+            "gpu_normal": {
+                "max_jobs_per_user": 16,
+                "cpu": 28,
+                "memory": "500G",
+                "partition": "gpu_p",
+            },
         }
 
         self.used_ports = []
         self.init_port = 48798
+
+    def count_jobs(self, qos_name):
+        try:
+            # Construct the command
+            command = f"squeue -u {self.user} -O qos,state | grep {qos_name} | wc -l"
+
+            # Execute the command and capture the output
+            result = subprocess.check_output(command, shell=True, text=True)
+
+            # Convert result to an integer
+            running_jobs = int(result.strip())
+
+            return running_jobs
+
+        except subprocess.CalledProcessError as e:
+            # Handle errors (e.g., if the command fails)
+            print(f"Error executing command: {e}")
+            return None
 
     def count_jobs_in_partition(self, partition_name):
         """
@@ -79,21 +107,20 @@ class ExperimentRunner:
         jobs = self.get_current_jobs()
         jupyter_cnts = 0
         for job in jobs:
-            if 'jupyter' in job:
+            if "jupyter" in job:
                 jupyter_cnts += 1
-                
-        
+
         return jupyter_cnts
-    
+
     def get_best_qos(self):
         """
         Returns the QoS with available capacity (i.e., where the number of running jobs is less than the max allowed).
         If no such QoS exists, return None.
         """
         for qos_name in self.qos_dict.keys():
-            max_jobs = self.qos_dict[qos_name]["count"]
-            
-            running_jobs = self.count_jobs_in_partition(qos_name)
+            max_jobs = self.qos_dict[qos_name]["max_jobs_per_user"]
+
+            running_jobs = self.count_jobs(qos_name)
             jupyter_jobs = self.jupyter_job_count()
             print(f"qos {qos_name}, {running_jobs}, {max_jobs}")
             if running_jobs is not None and running_jobs - jupyter_jobs < max_jobs:
@@ -130,8 +157,9 @@ class ExperimentRunner:
 
         # Update the defaults dictionary with the best QoS
         self.defaults["qos"] = best_qos
-        # self.defaults["memory"] = self.qos_dict[best_qos]["memory"]
-        # self.defaults["cpus_per_task"] = self.qos_dict[best_qos]["cpu"]
+        self.defaults["memory"] = self.qos_dict[best_qos]["memory"]
+        # self.defaults["cpu"] = self.qos_dict[best_qos]["cpu"]
+        self.defaults["cpu"] = 1
         # self.defaults["workers"] = self.qos_dict[best_qos]["cpu"] - 1
 
     def generate_sbatch_content(self):
@@ -151,11 +179,11 @@ class ExperimentRunner:
         job_name = self.defaults["job_name"]
         experiment_dir = os.path.join(self.output_dir, job_name)
 
-        test_file = os.path.join(experiment_dir, 'confusion_matrix_test.jpg')
+        test_file = os.path.join(experiment_dir, "confusion_matrix_test.jpg")
         if os.path.exists(test_file):
-            print(job_name, ' already trained')
+            print(job_name, " already trained")
             return
-        
+
         # Create directory for job output
         os.makedirs(experiment_dir, exist_ok=True)
 
@@ -296,41 +324,66 @@ def find_free_port():
 # modality -> op, opt: data_path, finetune
 # balance, not: balance
 # lossL loss
-print('experiment runner called')
+print("experiment runner called")
 
 if __name__ == "__main__":
-    print('hello from main')
+    print("hello from main")
     print("runner started...")
     runner = ExperimentRunner(1)
 
     experiments = [
         {
             "experiment": ["scivias"],
-            "modality": ['opt', 'op'],
-            'stats_source': ['custom'],
-            'transform': ['custom'],
+            "modality": ["opt"],
+            "stats_source": ["custom"],
+            "transform": ["custom"],
         },
-        {
-            "experiment": ["scivias"],
-            "modality": ['opt'],
-            'stats_source': ['custom'],
-            'more_augmentation': [0,1],
-            'epochs': [700]
-        },
-        {
-            "experiment": ["scivias"],
-            "modality": ['opt', 'op'],
-            'stats_source': ['custom', 'imagenet'],
-            'more_augmentation': [0,1]
-        },
-        {
-            "experiment": ["retfound"],
-            'batch_size': [16],
-            'balanced': [0],
-            'modality': ['op', 'opt'],
-            'stats_source': ['custom', 'imagenet'],
-            
-        }
-    ]
-    for item_to_test in experiments:
+    #     {
+    #         "experiment": ["scivias"],
+    #         "modality": ["opt", "op"],
+    #         "stats_source": ["custom"],
+    #         "transform": ["custom"],
+    #         "input_size": [128],
+    #     },
+    #     {
+    #         "experiment": ["scivias"],
+    #         "modality": ["opt", "op"],
+    #         "stats_source": ["custom"],
+    #         "transform": ["retfound", "custom"],
+    #         "batch_size": [64],
+    #     },
+    #     {"experiment": ["retfound"], "modality": ["opt", "op"], "epochs": [100]},
+    #     {
+    #         "experiment": ["scivias"],
+    #         "modality": ["opt"],
+    #         "stats_source": ["custom"],
+    #         "more_augmentation": [0, 1],
+    #         "epochs": [700],
+    #     },
+    #     {
+    #         "experiment": ["scivias"],
+    #         "modality": ["opt", "op"],
+    #         "stats_source": ["custom", "imagenet"],
+    #         "more_augmentation": [0, 1],
+    #     },
+    #     {
+    #         "experiment": ["retfound"],
+    #         "batch_size": [16],
+    #         "balanced": [0],
+    #         "modality": ["op", "opt"],
+    #         "stats_source": ["custom", "imagenet"],
+    #     },
+    #     {
+    #         "experiment": ["retfound", "scivias"],
+    #         "modality": ["op", "opt"],
+    #         "load_pretrained": [0, 1],
+    #     },
+    #     {
+    #         "experiment": ["scivias"],
+    #         "modality": ["op", "opt"],
+    #         "epochs": [700],
+    #     },
+     ]
+
+    for item_to_test in experiments[-1:]:
         runner.run_multiple_experiments(item_to_test, True)

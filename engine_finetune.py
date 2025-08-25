@@ -214,7 +214,10 @@ def evaluate(data_loader, model, device, task, epoch, mode, num_class):
     # cm.plot(cmap=plt.cm.Blues,number_label=True,normalized=True,plot_lib="matplotlib")
     # plt.savefig(task+f'confusion_matrix_{mode}.jpg',dpi=600,bbox_inches ='tight')
     # Plot confusion matrix with string labels
-    plot_confusion_matrix_with_counts(data_loader, true_label_decode_list, prediction_decode_list, task, mode)
+    dataset = data_loader.dataset
+    if hasattr(dataset, "classes"):
+        class_names = dataset.classes
+    plot_confusion_matrix_with_counts(true_label_decode_list, prediction_decode_list, task, mode, class_names)
     
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()},auc_roc
 

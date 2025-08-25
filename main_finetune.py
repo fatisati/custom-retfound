@@ -171,7 +171,8 @@ def get_args_parser():
     
     parser.add_argument('--transform', default='retfound',
                         help='weather to use retfound transform or my own custom transform (set to custom)')
-    
+    parser.add_argument('--load_pretrained', default=1, type=int,
+                        help='weather use or not use pretrained model')
     return parser
 
 
@@ -280,7 +281,7 @@ def main(args):
         global_pool=args.global_pool,
     )
 
-    if args.finetune and not args.eval:
+    if args.finetune and not args.eval and args.load_pretrained == 1:
         checkpoint = torch.load(args.finetune, map_location='cpu')
 
         print("Load pre-trained checkpoint from: %s" % args.finetune)
