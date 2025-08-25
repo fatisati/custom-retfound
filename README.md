@@ -1,3 +1,27 @@
+## Run Custom RETFound on SCIVIAS Data
+
+This repository is forked from the original **RETFound** repo and customized to run on the **SCIVIAS OCT dataset** with additional options and setups.
+For example, we have added:
+
+* **Normalization statistics** based on dataset statistics (instead of ImageNet mean/variance).
+* **Custom augmentation methods** tailored to OCT data.
+
+---
+
+1. Edit `auto_sbatch/constants.py` and set the correct paths for your data and the pretrained weights.
+   Pretrained weights can be found in [BENCHMARK.md](BENCHMARK.md).
+
+2. Update the `get_data_model(...)` function in this file to load your dataset and return the correct path to the pretrained model weights.
+
+3. To automatically generate and submit SLURM jobs, configure your experiment parameters in `experiment_runner.py`, then run:
+
+```bash
+python experiment_runner.py
+```
+
+This will create multiple SBATCH files—one per experiment configuration—and submit each job.
+
+
 ## RETFound - A foundation model for retinal imaging
 
 
